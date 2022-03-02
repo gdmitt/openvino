@@ -504,8 +504,8 @@ inline InferenceEngine::Blob::Ptr createAndFillBlobWithFloatArray(const Inferenc
 }
 
 inline InferenceEngine::Blob::Ptr createAndFillBlob(const InferenceEngine::TensorDesc &td,
-        const uint32_t range = 10,
-        const int32_t start_from = 0,
+        const uint32_t range = 15,
+        const int32_t start_from = -10,
         const int32_t resolution = 1,
         const int seed = 1) {
     InferenceEngine::Blob::Ptr blob = make_blob_with_precision(td);

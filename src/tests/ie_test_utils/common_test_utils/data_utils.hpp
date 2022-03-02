@@ -200,9 +200,12 @@ fill_data_random(T *pointer, std::size_t size, const uint32_t range = 10, int32_
         start_from = 0;
     }
 
+    std::cout << "Generation:" << std::endl;
     for (std::size_t i = 0; i < size; i++) {
         pointer[i] = static_cast<T>(start_from + static_cast<T>(random.Generate(range)) / k);
+        std::cout << std::to_string(pointer[i]) << " ";
     }
+    std::cout << std::endl;
 }
 
 /** @brief Fill a memory area with a sorted sequence of unique elements randomly generated.
@@ -354,8 +357,10 @@ fill_data_random_float(InferenceEngine::Blob::Ptr &blob, const uint32_t range, i
     using T = typename InferenceEngine::PrecisionTrait<PRC>::value_type;
     std::default_random_engine random(seed);
     // 1/k is the resolution of the floating point numbers
+    start_from = -7;
     std::uniform_int_distribution<int32_t> distribution(k * start_from, k * (start_from + range));
 
+    std::cout << "Generation:" << std::endl;
     auto *rawBlobDataPtr = blob->buffer().as<T *>();
     for (size_t i = 0; i < blob->size(); i++) {
         auto value = static_cast<float>(distribution(random));
@@ -367,7 +372,9 @@ fill_data_random_float(InferenceEngine::Blob::Ptr &blob, const uint32_t range, i
         } else {
             rawBlobDataPtr[i] = static_cast<T>(value);
         }
+        std::cout << std::to_string(rawBlobDataPtr[i]) << " ";
     }
+    std::cout << std::endl;
 }
 
 template<typename T>

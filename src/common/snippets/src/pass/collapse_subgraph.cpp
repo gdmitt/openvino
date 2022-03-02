@@ -99,15 +99,20 @@ auto is_layout_oblivious(const std::shared_ptr<const Node> &n) -> bool {
             || ov::is_type<opset1::Tanh>(n)
             || ov::is_type<ngraph::op::v0::Gelu>(n)
             || ov::is_type<ngraph::op::v7::Gelu>(n)
-            || ov::is_type<ngraph::op::v4::HSwish>(n);
+            || ov::is_type<ngraph::op::v4::HSwish>(n)
+            || ov::is_type<ngraph::op::v0::Convert>(n);
     };
     return is_layout_oblivious_unary(n) || is_layout_oblivious_binary(n);
 }
 
 auto has_supported_in_out(const std::shared_ptr<const Node> &n) -> bool {
     auto supported = [](descriptor::Tensor& t) -> bool {
-        return t.get_element_type() == ngraph::element::f32 &&
-               t.get_partial_shape().is_static();
+        return t.get_partial_shape().is_static() &&
+                (t.get_element_type() == ngraph::element::f32
+              || t.get_element_type() == ngraph::element::i32
+              || t.get_element_type() == ngraph::element::bf16
+              || t.get_element_type() == ngraph::element::i8
+              || t.get_element_type() == ngraph::element::u8);
     };
     const auto & inputs = n->inputs();
     const auto & outputs = n->outputs();
@@ -406,6 +411,15 @@ TokenizeSnippets::TokenizeSnippets() {
                 auto& input_body = clones[input_node];
                 size_t source_output_index = input_value.get_index();
                 auto source_result = input_body->get_results()[source_output_index];
+
+                // if Convert is output of subgraph but isn't input of subgraph (it means that it is not just one node in body)
+                // we cannot collapse new node after that to avoid arithmetic problems with conversion
+                const auto input_in_subgraph = source_result->get_input_node_shared_ptr(0);
+                if (ov::is_type<ngraph::op::v0::Convert>(input_in_subgraph)) {
+                    if (!ov::is_type<ngraph::op::v0::Parameter>(input_in_subgraph->get_input_node_shared_ptr(0))) {
+                        return abort_with_strategy("Convert supports only on the start and on the end of subgraph. Aborting");
+                    }
+                }
                 // Result op has a single input
                 internal_inputs.push_back(source_result->input_value(0));
             } else {

@@ -152,7 +152,7 @@ bool ngraph::pass::CommonOptimizations::run_on_model(const std::shared_ptr<ngrap
     decomp->add_matcher<ngraph::pass::ConvertMod>();
     decomp->add_matcher<ngraph::pass::ConvertGELU>();
     decomp->add_matcher<ngraph::pass::ConvertMinimum>();
-    decomp->add_matcher<ngraph::pass::ConvertSubtract>();
+    //decomp->add_matcher<ngraph::pass::ConvertSubtract>();
     decomp->add_matcher<ngraph::pass::ConvertDivide>();
     decomp->add_matcher<ngraph::pass::ConvertNegative>();
     decomp->add_matcher<ngraph::pass::ConvertDepthToSpace>();

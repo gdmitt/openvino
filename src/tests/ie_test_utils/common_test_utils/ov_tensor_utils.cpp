@@ -230,9 +230,12 @@ void compare(const ov::Tensor& expected,
         auto eps = std::numeric_limits<double>::epsilon();
         return (b - a) > (std::fmax(std::fabs(a), std::fabs(b)) * eps);
     };
+    bool err = false;
+    std::cout << "CHECK" << std::endl;
     for (size_t i = 0; i < shape_size(expected_shape); i++) {
         double expected_value = expected_data[i];
         double actual_value = actual_data[i];
+        std::cout << std::to_string(expected_value) << " vs " << std::to_string(actual_value) << std::endl;
         auto error = [&] (Error& err, double val, double threshold) {
             if (less(err.max, val)) {
                 err.max = val;
@@ -259,6 +262,21 @@ void compare(const ov::Tensor& expected,
     abs_error.mean /= shape_size(expected_shape);
     rel_error.mean /= shape_size(expected_shape);
     if (!(less(abs_error.max, abs_threshold) && less(rel_error.max, rel_threshold))) {
+        /*std::ostringstream out_stream;
+        out_stream << "abs_max < abs_threshold && rel_max < rel_threshold" <<
+                   "\n\t abs_max: " << abs_error.max <<
+                   "\n\t\t coordinate " << abs_error.max_coordinate<<
+                   "; abs errors count "  << abs_error.count  << "; abs mean " <<
+                   abs_error.mean  << "; abs threshold "  << abs_threshold <<
+                   "\n\t rel_max: "  << rel_error.max <<
+                   "\n\t\t coordinate "  << rel_error.max_coordinate <<
+                   "; rel errors count "  << rel_error.count  << "; rel mean " <<
+                   rel_error.mean  << "; rel threshold "  << rel_threshold;
+        throw std::runtime_error(out_stream.str());*/
+        err = true;
+    }
+
+    if (err) {
         std::ostringstream out_stream;
         out_stream << "abs_max < abs_threshold && rel_max < rel_threshold" <<
                    "\n\t abs_max: " << abs_error.max <<

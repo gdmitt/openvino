@@ -487,9 +487,10 @@ void jit_load_emitter::register_table_entries() {
 }
 
 /// STORE ///
-jit_store_emitter::jit_store_emitter(jit_generator *host, cpu_isa_t host_isa,
+jit_store_emitter::jit_store_emitter(jit_generator *host, cpu_isa_t host_isa, enum arithmetic_mode mode,
     Precision exec_prc, emitter_in_out_map in_out_type)
-: jit_emitter(host, host_isa, exec_prc, in_out_type), name("unknown") {
+: jit_emitter(host, host_isa, exec_prc, in_out_type), arithmetic_mode(mode), name("unknown") {
+    prepare_table();
     v_len_elt = get_vec_length() / exec_prc.size();
     if (!mayiuse(cpu::x64::avx512_core_bf16) && mayiuse(cpu::x64::avx512_core)) {
         emu_vcvtneps2bf16.reset(new jit_emu_vcvtneps2bf16(host, host_isa));
@@ -498,7 +499,7 @@ jit_store_emitter::jit_store_emitter(jit_generator *host, cpu_isa_t host_isa,
 
 // 0 for temp reg for mask store
 size_t jit_store_emitter::aux_gprs_count() const {
-    return 1;
+    return arithmetic_mode == arithmetic_mode::truncation ? 3 : 1;
 }
 
 // zero value, zeroed and passed from caller from performance standpoint(zeroed one time and not need preserve and restore status)
@@ -509,6 +510,7 @@ size_t jit_store_emitter::aux_vecs_count() const {
 size_t jit_store_emitter::get_inputs_num() const { return 1; }
 
 void jit_store_emitter::emit_data() const {
+    jit_emitter::emit_data();
     if (emu_vcvtneps2bf16)
         emu_vcvtneps2bf16->emit_data();
 }
@@ -554,7 +556,11 @@ template <dnnl::impl::cpu::x64::cpu_isa_t isa>
             switch (src_prc) {
                 case Precision::FP32:
                     if ((dst_prc != Precision::FP32) && (dst_prc != Precision::BF16)) {
-                        h->uni_vcvtps2dq(Vmm(in_vec_idx), Vmm(in_vec_idx));
+                        if (arithmetic_mode == arithmetic_mode::saturation) {
+                            h->uni_vcvtps2dq(Vmm(in_vec_idx), Vmm(in_vec_idx));
+                        } else {
+                            h->uni_vcvttps2dq(Vmm(in_vec_idx), Vmm(in_vec_idx));
+                        }
                     }
                     break;
                 case Precision::I32:
@@ -730,7 +736,7 @@ template <typename Vmm>
 
 /**
 * store_dword_to_byte_extension is the utility function to
-* 1. convert store_num (0 <= store_num <= 16) dwords in the Xmm/Ymm/Zmm to store_num bytes with singed or unsinged saturation.
+* 1. convert store_num (0 <= store_num <= 16) dwords in the Xmm/Ymm/Zmm to store_num bytes with and without singed or unsinged saturation.
 * 2. store the packed byte into the memory referenced by ptr[reg + offset] address.
 */
 template <typename Vmm>
@@ -761,44 +767,60 @@ template <typename Vmm>
 
         if (is_zmm) {
             if (store_num == 16) { // v_len_elt(16)
-                if (is_signed) {
-                    h->vpmovsdb(addr(0), vmm);
+                if (arithmetic_mode == arithmetic_mode::saturation) {
+                    if (is_signed) {
+                        h->vpmovsdb(addr(0), vmm);
+                    } else {
+                        Vmm zero(aux_vec_idxs[0]);
+                        h->uni_vpxor(zero, zero, zero);
+                        h->vpmaxsd(vmm, vmm, zero);
+                        h->vpmovusdb(addr(0), vmm);
+                    }
                 } else {
-                    Vmm zero(aux_vec_idxs[0]);
-                    h->uni_vpxor(zero, zero, zero);
-                    h->vpmaxsd(vmm, vmm, zero);
-                    h->vpmovusdb(addr(0), vmm);
+                    h->vpmovdb(addr(0), vmm);
                 }
             } else {
                 unsigned int mask = 1;
                 mask = (mask << store_num) - mask;
                 h->mov(Reg32(aux_gpr_idxs[0]), mask);
                 h->kmovw(k_mask, Reg32(aux_gpr_idxs[0]));
-                if (is_signed) {
-                    h->vpmovsdb(addr(0), vmm | k_mask);
+                if (arithmetic_mode == arithmetic_mode::saturation) {
+                    if (is_signed) {
+                        h->vpmovsdb(addr(0), vmm | k_mask);
+                    } else {
+                        Vmm zero(aux_vec_idxs[0]);
+                        h->uni_vpxor(zero, zero, zero);
+                        h->vpmaxsd(vmm, vmm, zero);
+                        h->vpmovusdb(addr(0), vmm | k_mask);
+                    }
                 } else {
-                    Vmm zero(aux_vec_idxs[0]);
-                    h->uni_vpxor(zero, zero, zero);
-                    h->vpmaxsd(vmm, vmm, zero);
-                    h->vpmovusdb(addr(0), vmm | k_mask);
+                    h->vpmovdb(addr(0), vmm | k_mask);
                 }
             }
         } else {
-            // db only available on avx512, need dw+wb to emulate
-            if (is_signed)
-                h->uni_vpackssdw(vmm, vmm, vmm);
-            else
-                h->uni_vpackusdw(vmm, vmm, vmm);
-            // gather 2(cross lane) 64 bits into lower vmm to store
-            // [y_3 y_2 y_1 y_0] |--> [y_0 y_0 y_2 y_0]
-            if (is_ymm) {
-                h->vpermq(ymm, ymm, 0x08);  // 00001000
-            }
+            if (arithmetic_mode == arithmetic_mode::saturation) {
+                // db only available on avx512, need dw+wb to emulate
+                if (is_signed)
+                    h->uni_vpackssdw(vmm, vmm, vmm);
+                else
+                    h->uni_vpackusdw(vmm, vmm, vmm);
+                // gather 2(cross lane) 64 bits into lower vmm to store
+                // [y_3 y_2 y_1 y_0] |--> [y_0 y_0 y_2 y_0]
+                if (is_ymm) {
+                    h->vpermq(ymm, ymm, 0x08);  // 00001000
+                }
 
-            if (is_signed)
-                h->uni_vpacksswb(vmm, vmm, vmm);
-            else
+                if (is_signed)
+                    h->uni_vpacksswb(vmm, vmm, vmm);
+                else
+                    h->uni_vpackuswb(vmm, vmm, vmm);
+            } else {
+                h->vpand(vmm, vmm, table_val("mask_truncation_byte"));  // to avoid saturation
+                h->uni_vpackssdw(vmm, vmm, vmm);
+                if (is_ymm)
+                    h->vpermq(ymm, ymm, 0x08);
                 h->uni_vpackuswb(vmm, vmm, vmm);
+            }
 
             store_bytes(vmm, reg, offset, store_num);
         }
@@ -847,45 +869,66 @@ template <typename Vmm>
         } else {
             if (is_zmm) {
                 if (store_num == 16) {  // v_len_elt
-                    if (is_signed) {
-                        h->vpmovsdw(ptr[reg + offset], vmm);  // singed int32 saturate to signed int16.
+                    if (arithmetic_mode == arithmetic_mode::saturation) {
+                        if (is_signed) {
+                            h->vpmovsdw(ptr[reg + offset], vmm);  // singed int32 saturate to signed int16.
+                        } else {
+                            Vmm zero(aux_vec_idxs[0]);
+                            h->uni_vpxor(zero, zero, zero);
+                            h->vmaxsd(vmm, zero, vmm);        // if singed bit is 1, set value as 0.
+                            h->vpmovusdw(ptr[reg + offset], vmm); // unsinged int32 saturate to unsigned int16.
+                        }
                     } else {
-                        Vmm zero(aux_vec_idxs[0]);
-                        h->uni_vpxor(zero, zero, zero);
-                        h->vmaxsd(vmm, zero, vmm);        // if singed bit is 1, set value as 0.
-                        h->vpmovusdw(ptr[reg + offset], vmm); // unsinged int32 saturate to unsigned int16.
+                        h->vpmovdw(ptr[reg + offset], vmm);
                     }
                 } else {
                     unsigned int mask = 1;
                     mask = (mask << store_num) - mask;
                     h->mov(Reg32(aux_gpr_idxs[0]), mask);
                     h->kmovw(k_mask, Reg32(aux_gpr_idxs[0]));
-                    if (is_signed) {
-                        h->vpmovsdw(ptr[reg + offset], vmm | k_mask);
+                    if (arithmetic_mode == arithmetic_mode::saturation) {
+                        if (is_signed) {
+                            h->vpmovsdw(ptr[reg + offset], vmm | k_mask);
+                        } else {
+                            Vmm zero(aux_vec_idxs[0]);
+                            h->uni_vpxor(zero, zero, zero);
+                            h->vmaxsd(vmm, zero, vmm);
+                            h->vpmovusdw(ptr[reg + offset], vmm | k_mask);
+                        }
                     } else {
-                        Vmm zero(aux_vec_idxs[0]);
-                        h->uni_vpxor(zero, zero, zero);
-                        h->vmaxsd(vmm, zero, vmm);
-                        h->vpmovusdw(ptr[reg + offset], vmm | k_mask);
+                        h->vpmovdw(ptr[reg + offset], vmm | k_mask);
                     }
                 }
             } else {
                 // direct mov_dw available only on avx512, emulate with pack_dw + permute + pure store
-                if (is_signed)
-                    h->uni_vpackssdw(vmm, vmm, vmm);
-                else
+                if (arithmetic_mode == arithmetic_mode::saturation) {
+                    if (is_signed)
+                        h->uni_vpackssdw(vmm, vmm, vmm);
+                    else
+                        h->uni_vpackusdw(vmm, vmm, vmm);
+                } else {
+                    h->vpand(vmm, vmm, table_val("mask_truncation_word"));  // to avoid saturation
                     h->uni_vpackusdw(vmm, vmm, vmm);
+                }
+
                 // gather 2/4(cross lane) 64 bits into lower vmm to store
                 // [y_3 y_2 y_1 y_0] |--> [y_0 y_0 y_2 y_0]
                 // [  128  |  128  ] |--> [ 128   |  128  ]
                 if (is_ymm) {
-                    h->vpermq(ymm, ymm, 0x08);  // 00001000
+                    h->vpermq(ymm, ymm, 0x08);
                 }
 
                 store_bytes(vmm, reg, offset, store_num * 2);
             }
         }
     }
+
+void jit_store_emitter::register_table_entries() {
+    if (arithmetic_mode == arithmetic_mode::truncation) {
+        push_arg_entry_of("mask_truncation_byte", 0x000000ff, true);
+        push_arg_entry_of("mask_truncation_word", 0x0000ffff, true);
+    }
+}
 
 }   // namespace intel_cpu
 }   // namespace ov

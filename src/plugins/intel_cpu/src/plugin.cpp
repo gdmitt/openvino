@@ -179,6 +179,7 @@ Engine::~Engine() {
 
 static void TransformationUpToCPUSpecificOpSet(std::shared_ptr<ngraph::Function> nGraphFunc, const bool _enableLPT,
                                                const bool _enableSnippets, const bool isLegacyApi) {
+   // ov::pass::Serialize("C:\\openvino\\graphs\\graph_clear.xml", "C:\\openvino\\graphs\\graph_clear.bin").run_on_model(nGraphFunc);
     ngraph::pass::Manager manager;
     manager.set_per_pass_validation(false);
     manager.register_pass<ngraph::pass::InitNodeInfo>();
@@ -553,6 +554,7 @@ static void TransformationUpToCPUSpecificOpSet(std::shared_ptr<ngraph::Function>
                     return has_only_const_inputs || bad_input_rank || bad_output_rank;
                 });
         tokenization_manager.run_passes(nGraphFunc);
+        ov::pass::Serialize("C:\\openvino\\graphs\\graph.xml", "C:\\openvino\\graphs\\graph.bin").run_on_model(nGraphFunc);
     }
 }
 
