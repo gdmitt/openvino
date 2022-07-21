@@ -12,7 +12,7 @@ namespace snippets {
 namespace pass {
 
 /**
- * @interface ConvertConstantsToScalars
+ * @interface ConvertPowerToPowerStatic
  * @brief Replace Power with a scalar input with snippets::op::PowerStatic for generation of a more optimal code.
  * @ingroup snippets
  */
