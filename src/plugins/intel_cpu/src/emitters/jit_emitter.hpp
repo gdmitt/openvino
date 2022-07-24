@@ -39,6 +39,12 @@ public:
                 InferenceEngine::Precision exec_prc = InferenceEngine::Precision::FP32, emitter_in_out_map in_out_type = emitter_in_out_map::vec_to_vec)
         : Emitter(n), h(host), host_isa_(host_isa), exec_prc_(exec_prc), in_out_type_(in_out_type), l_table (new Xbyak::Label()) {
         k_mask = Xbyak::Opmask(1); // FIXME: in general case we need preserve k_mask state as well
+
+        const auto input_size = n->get_input_size();
+        source_output_indexes.resize(input_size);
+        for (auto i = 0; i < input_size; ++i) {
+            source_output_indexes[i] = n->get_input_source_output(i).get_index();
+        }
     }
 
     void emit_code(const std::vector<size_t> &in_idxs, const std::vector<size_t> &out_idxs,
@@ -63,6 +69,8 @@ protected:
     dnnl::impl::cpu::x64::cpu_isa_t host_isa_;
     InferenceEngine::Precision exec_prc_;
     Xbyak::Opmask k_mask;
+
+    std::vector<size_t> source_output_indexes;
 
     virtual void prepare_table();
     virtual void register_table_entries() {}

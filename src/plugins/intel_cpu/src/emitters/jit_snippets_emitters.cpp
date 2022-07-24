@@ -383,7 +383,8 @@ template <dnnl::impl::cpu::x64::cpu_isa_t isa>
 void FakeBroadcastEmitter::emit_isa(const std::vector<size_t> &in, const std::vector<size_t> &out) const {
     using Vmm = typename dnnl::impl::utils::conditional3<isa == dnnl::impl::cpu::x64::sse41,
             Xmm, isa == dnnl::impl::cpu::x64::avx2, Ymm, Zmm>::type;
-    Vmm vmm_src0 = Vmm(in[0]);
+    assert(source_output_indexes.empty() || (source_output_indexes.size() == 1ul));
+    Vmm vmm_src0 = Vmm(source_output_indexes.empty() ? 0 : in[source_output_indexes[0]]);
     Vmm vmm_dst  = Vmm(out[0]);
 
     if (use_broadcast) {
