@@ -10,7 +10,7 @@
 #include "snippets/pass/insert_movebroadcast.hpp"
 #include "snippets/pass/load_movebroadcast_to_broadcastload.hpp"
 #include "snippets/pass/assign_registers.hpp"
-#include "snippets/pass/convert_constants_to_scalars.hpp"
+#include "snippets/pass/convert_constants.hpp"
 #include "snippets/pass/convert_power_to_powerstatic.hpp"
 #include "snippets/pass/vector_to_scalar.hpp"
 
@@ -19,7 +19,6 @@
 
 #include <algorithm>
 #include <memory>
-#include <array>
 
 using namespace std;
 using namespace ngraph;
@@ -224,7 +223,7 @@ void snippets::op::Subgraph::convert_to_snippet_dialect() {
         return n->get_input_shape(0).back() != 1;
     };
     ngraph::pass::Manager manager;
-    manager.register_pass<snippets::pass::ConvertConstantsToScalars>();
+    manager.register_pass<snippets::pass::ConvertConstants>();
     manager.register_pass<snippets::pass::ConvertPowerToPowerStatic>();
     manager.register_pass<snippets::pass::InsertLoad>();
     manager.register_pass<snippets::pass::InsertStore>();

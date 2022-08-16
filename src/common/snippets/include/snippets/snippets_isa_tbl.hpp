@@ -26,6 +26,9 @@ NGRAPH_OP(Nop, ngraph::snippets::op)
 
 // Layout-oblivious from opset1
 
+// movement
+NGRAPH_OP(Split, ngraph::op::v1)
+
 // opset completeness
 NGRAPH_OP(Constant, ngraph::op)
 NGRAPH_OP(Parameter, ngraph::op::v0)

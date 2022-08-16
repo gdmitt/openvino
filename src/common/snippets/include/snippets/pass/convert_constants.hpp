@@ -12,14 +12,14 @@ namespace snippets {
 namespace pass {
 
 /**
- * @interface ConvertConstantsToScalars
+ * @interface ConvertConstants
  * @brief Replace only constants which are should be represented as scalars during code generation.
  * Only single-value (0D) constants are currently supported.
  * @ingroup snippets
  */
-class ConvertConstantsToScalars: public ngraph::pass::MatcherPass {
+class ConvertConstants: public ngraph::pass::FunctionPass {
 public:
-    ConvertConstantsToScalars();
+    bool run_on_model(const std::shared_ptr<ov::Model>& m) override;
 };
 
 } // namespace pass

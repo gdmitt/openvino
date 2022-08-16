@@ -35,6 +35,9 @@ public:
     OPENVINO_SUPPRESS_DEPRECATED_START
     bool evaluate(const HostTensorVector& output_values, const HostTensorVector& input_values) const override;
     OPENVINO_SUPPRESS_DEPRECATED_END
+
+    size_t offset;
+    bool should_post_increment;
 };
 
 } // namespace op

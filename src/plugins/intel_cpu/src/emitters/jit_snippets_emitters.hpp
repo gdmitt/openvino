@@ -287,6 +287,7 @@ private:
 
 private:
     bool shouldPostIncrement;
+    size_t offset;
 };
 
 class BroadcastLoadEmitter : public MemoryEmitter {

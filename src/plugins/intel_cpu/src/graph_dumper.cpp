@@ -209,8 +209,10 @@ std::shared_ptr<ngraph::Function> dump_graph_as_ie_ngraph_net(const Graph &graph
 }
 
 #ifdef CPU_DEBUG_CAPS
-void serialize(const Graph &graph) {
-    const std::string& path = graph.getConfig().execGraphPath;
+void serialize(const Graph &graph, std::string path) {
+    if (path.empty()) {
+        path = graph.getConfig().execGraphPath;
+    }
 
     if (path.empty())
         return;

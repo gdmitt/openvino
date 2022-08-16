@@ -165,6 +165,11 @@ Node::Node(const std::shared_ptr<ngraph::Node>& op, const dnnl::engine& eng, Wei
     if (it != rtInfo.end()) {
         enforceBF16evenForGraphTail = it->second.as<bool>();
     }
+
+    const auto it_concatenated = rtInfo.find("concatenated");
+    if (it_concatenated != rtInfo.end()) {
+        concatenated = it_concatenated->second.as<bool>();
+    }
 }
 
 Node::Node(const std::string& type, const std::string& name, const dnnl::engine& eng, WeightsSharing::Ptr &w_cache)

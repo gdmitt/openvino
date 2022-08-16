@@ -231,28 +231,28 @@ void Config::readDebugCapsProperties() {
 
     const char* envVarValue = nullptr;
 
-    if (envVarValue = readEnv("OV_CPU_EXEC_GRAPH_PATH"))
+    if ((envVarValue = readEnv("OV_CPU_EXEC_GRAPH_PATH")))
         execGraphPath = envVarValue;
 
-    if (envVarValue = readEnv("OV_CPU_VERBOSE"))
+    if ((envVarValue = readEnv("OV_CPU_VERBOSE")))
         verbose = envVarValue;
 
-    if (envVarValue = readEnv("OV_CPU_BLOB_DUMP_DIR"))
+    if ((envVarValue = readEnv("OV_CPU_BLOB_DUMP_DIR")))
         blobDumpDir = envVarValue;
 
-    if (envVarValue = readEnv("OV_CPU_BLOB_DUMP_FORMAT"))
+    if ((envVarValue = readEnv("OV_CPU_BLOB_DUMP_FORMAT")))
         blobDumpFormat = parseDumpFormat(envVarValue);
 
-    if (envVarValue = readEnv("OV_CPU_BLOB_DUMP_NODE_EXEC_ID"))
+    if ((envVarValue = readEnv("OV_CPU_BLOB_DUMP_NODE_EXEC_ID")))
         blobDumpFilters[BY_EXEC_ID] = envVarValue;
 
-    if (envVarValue = readEnv("OV_CPU_BLOB_DUMP_NODE_PORTS"))
+    if ((envVarValue = readEnv("OV_CPU_BLOB_DUMP_NODE_PORTS")))
         blobDumpFilters[BY_PORTS] = envVarValue;
 
-    if (envVarValue = readEnv("OV_CPU_BLOB_DUMP_NODE_TYPE"))
+    if ((envVarValue = readEnv("OV_CPU_BLOB_DUMP_NODE_TYPE")))
         blobDumpFilters[BY_TYPE] = envVarValue;
 
-    if (envVarValue = readEnv("OV_CPU_BLOB_DUMP_NODE_NAME"))
+    if ((envVarValue = readEnv("OV_CPU_BLOB_DUMP_NODE_NAME")))
         blobDumpFilters[BY_NAME] = envVarValue;
 
     // always enable perf counters for verbose mode

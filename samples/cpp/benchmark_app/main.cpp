@@ -480,6 +480,14 @@ int main(int argc, char* argv[]) {
                     StatisticsReport::Category::EXECUTION_RESULTS,
                     {StatisticsVariant("read network time (ms)", "read_network_time", duration_ms)});
 
+            for (auto index = 0; index < model->inputs().size(); index++) {
+                const auto& input = model->input(index);
+                auto& tensor = input.get_tensor();
+                if (tensor.get_names().empty()) {
+                    tensor.set_names({input.get_node()->get_friendly_name()});
+                }
+            }
+
             const auto& inputInfo = std::const_pointer_cast<const ov::Model>(model)->inputs();
             if (inputInfo.empty()) {
                 throw std::logic_error("no inputs info is provided");

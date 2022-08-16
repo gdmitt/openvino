@@ -133,15 +133,18 @@ private:
     std::unordered_map<Node*, int64_t> m_heights;
 };
 
-static std::string label_edge(const std::shared_ptr<Node>& /* src */,
+static std::string label_edge(const std::shared_ptr<Node>& src,
                               const std::shared_ptr<Node>& dst,
                               size_t arg_index,
                               int64_t jump_distance) {
     std::stringstream ss;
     if (getenv_bool("OV_VISUALIZE_TREE_EDGE_LABELS")) {
-        size_t output = 0;
         stringstream label_edge;
-        label_edge << "[label=\" " << output << " -> " << arg_index << " \"]";
+        if (arg_index < dst->get_input_size()) {
+            label_edge << "[label=\" " << dst->input(arg_index).get_source_output().get_index() << " -> " << arg_index << " \"]";
+        } else {
+            label_edge << "[label=\" <not correct> -> " << arg_index << " \"]";
+        }
         ss << label_edge.str();
     } else if (getenv_bool("OV_VISUALIZE_TREE_EDGE_JUMP_DISTANCE")) {
         if (jump_distance > 1) {
@@ -503,6 +506,7 @@ string pass::VisualizeTree::get_node_name(shared_ptr<Node> node) {
         rc += "\\n" + (nvtmn ? string("name: ") : "") + node->get_name();
     }
     rc += "\\n" + (nvtmn ? string("type_name: ") : "") + std::string(node->get_type_name());
+    rc += "\\n" + (nvtmn ? string("instance_address: ") : "") + std::to_string((size_t)node.get());
 
     static const bool nvtrti = getenv_bool("OV_VISUALIZE_TREE_RUNTIME_INFO");
     if (nvtrti) {

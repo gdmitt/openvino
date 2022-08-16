@@ -571,6 +571,8 @@ public:
         rtParamsCache = cache;
     }
 
+    bool concatenated = false;
+
 protected:
     bool canFuseSimpleOperation(const NodePtr& node) const;
 

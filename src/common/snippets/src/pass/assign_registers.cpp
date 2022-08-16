@@ -12,6 +12,156 @@
 #include <ngraph/opsets/opset1.hpp>
 
 #include <iterator>
+#include <openvino/runtime/exception.hpp>
+
+namespace {
+
+using namespace ngraph;
+    void set_reginfo(const std::shared_ptr<ngraph::Node>& node, const size_t register_number) {
+    if (node->get_output_size() != 1ul) {
+        throw ov::Exception("node " + node->get_friendly_name() + " has several outputs");
+    }
+
+    auto& rt = node->get_rt_info();
+    auto it = rt.find("reginfo");
+    if (it == rt.end()) {
+        throw ov::Exception("register is absent");
+    }
+
+    auto& registers = it->second.as<std::vector<size_t>>();
+    if (registers.size() != 1ul) {
+        throw ov::Exception("unexpected registers count");
+    }
+
+    registers[0] = register_number;
+}
+
+void fix_concatenation(const std::shared_ptr<Node>& node, const size_t register_number) {
+    if (!ngraph::is_type<snippets::op::BroadcastMove>(node) && !ngraph::is_type<ngraph::snippets::op::Load>(node)) {
+        return;
+    }
+
+    node->get_default_output();
+    set_reginfo(node, register_number);
+    fix_concatenation(node->get_input_node_shared_ptr(0), register_number);
+}
+
+bool is_concatenation_load_branch(const std::shared_ptr<Node>& node) {
+    if (!ngraph::is_type<snippets::op::BroadcastMove>(node)) {
+        return false;
+    }
+
+    const auto load = node->get_input_source_output(0).get_node_shared_ptr();
+    if (!ngraph::is_type<snippets::op::Load>(load)) {
+        return false;
+    }
+
+    const auto split = load->get_input_source_output(0).get_node_shared_ptr();
+    if (!ngraph::is_type<opset1::Split>(split)) {
+        return false;
+    }
+
+    return true;
+}
+
+size_t get_free_register(const std::unordered_map<size_t, std::shared_ptr<Node>>& register_by_parent_node) {
+    // todo: move this plugin-specific constraint to the plugin callback (TokenizeSnippets::TokenizeSnippets)
+    const size_t max_register = 12;
+    for (size_t i = 0ul; i < max_register; ++i) {
+        if (register_by_parent_node.find(i) == register_by_parent_node.end()) {
+            return i;
+        }
+    }
+    throw ov::Exception("all registers are occupied");
+}
+
+size_t fix_concatenation_load_branch(
+        const std::shared_ptr<Node>& source,
+        const std::unordered_map<size_t, std::shared_ptr<Node>>& register_by_parent_node) {
+    if (source->get_output_size() != 1ul) {
+        throw ov::Exception("node " + source->get_friendly_name() + " has several outputs");
+    }
+    const auto free_register = get_free_register(register_by_parent_node);
+    fix_concatenation(source, free_register);
+    return free_register;
+}
+
+size_t fix_branch(
+        std::shared_ptr<Node> source,
+        std::unordered_map<size_t, std::shared_ptr<Node>>& register_by_parent_node) {
+    const auto free_register = get_free_register(register_by_parent_node);
+    set_reginfo(source, free_register);
+    return free_register;
+}
+
+void update_concatenation_by_branch(const std::shared_ptr<ov::Model>& f) {
+    for (const auto &n : f->get_ordered_ops()) {
+        const auto input_size = n->get_input_size();
+        if (input_size == 1ul) {
+            continue;
+        }
+
+        std::unordered_map<size_t, std::shared_ptr<Node>> register_by_parent_node;
+        std::shared_ptr<ngraph::Node> prev_source = nullptr;
+
+        for (auto i = 0; i < input_size; ++i) {
+            const auto &source_output = n->input(i).get_source_output();
+            const auto &source = source_output.get_node_shared_ptr();
+            if (ngraph::is_type<opset1::Parameter>(source)) {
+                continue;
+            }
+
+            auto &rt = source->get_rt_info();
+            auto it = rt.find("reginfo");
+            if (it == rt.end()) {
+                continue;
+            }
+
+            const auto& source_registers = it->second.as<std::vector<size_t>>();
+            auto source_register = source_registers[source_output.get_index()];
+
+            if (prev_source != nullptr) {
+                if ((register_by_parent_node.size() == 1ul) && is_concatenation_load_branch(prev_source)) {
+                    // the first parent node was skipped before
+                    const auto prev_source_register = fix_concatenation_load_branch(prev_source, register_by_parent_node);
+                    register_by_parent_node.emplace(prev_source_register, prev_source);
+                }
+
+                if (is_concatenation_load_branch(source)) {
+                    source_register = fix_concatenation_load_branch(source, register_by_parent_node);
+                } else {
+                    if (register_by_parent_node.find(source_register) != register_by_parent_node.end()) {
+                        source_register = fix_branch(source, register_by_parent_node);
+                    }
+                }
+            }
+
+            register_by_parent_node.emplace(source_register, source);
+            prev_source = source;
+        }
+    }
+}
+
+std::shared_ptr<opset1::Parameter> as_parameter(const std::shared_ptr<Node>& source) {
+    auto parameter = ov::as_type_ptr<opset1::Parameter>(source);
+    if (parameter != nullptr) {
+        return parameter;
+    }
+
+    const auto split = ov::as_type_ptr<opset1::Split>(source);
+    if (split == nullptr) {
+        return nullptr;
+    }
+
+    parameter = ov::as_type_ptr<opset1::Parameter>(split->get_input_node_shared_ptr(0));
+    if (parameter == nullptr) {
+        return nullptr;
+    }
+
+    return parameter;
+}
+
+} // namespace
 
 bool ngraph::snippets::pass::AssignRegisters::run_on_model(const std::shared_ptr<ov::Model>& f) {
     RUN_ON_FUNCTION_SCOPE(AssignRegisters);
@@ -151,7 +301,7 @@ bool ngraph::snippets::pass::AssignRegisters::run_on_model(const std::shared_ptr
          */
         if (is_type<ov::op::v0::Result>(n)) {
             continue;
-        } else if (const auto& param = ov::as_type_ptr<ov::op::v0::Parameter>(n)) {
+        } else if (const auto& param = as_parameter(n)) {
             regs.push_back(f->get_parameter_index(param));
         } else if (const auto& store = ov::as_type_ptr<ngraph::snippets::op::Store>(n)) {
             regs.push_back(f->get_result_index(store) + num_parameters);
@@ -163,6 +313,8 @@ bool ngraph::snippets::pass::AssignRegisters::run_on_model(const std::shared_ptr
         }
         rt["reginfo"] = regs;
     }
+
+    update_concatenation_by_branch(f);
 
     return false;
 }

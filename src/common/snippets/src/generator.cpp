@@ -12,6 +12,61 @@
 
 #include <ngraph/pass/manager.hpp>
 
+namespace {
+void set_should_post_increment(std::shared_ptr<ov::Model>& m) {
+    std::unordered_map<std::shared_ptr<ngraph::Node>, std::vector<std::shared_ptr<ngraph::snippets::op::Load>>> loads_by_split;
+    std::unordered_map<std::shared_ptr<ngraph::snippets::op::Load>, size_t> ordered_loads;
+    size_t order = 0;
+    for (auto n : m->get_ordered_ops()) {
+        if (auto load = ngraph::as_type_ptr<ngraph::snippets::op::Load>(n)) {
+            if (auto split = ngraph::as_type_ptr<ngraph::opset1::Split>(n->get_input_node_shared_ptr(0))) {
+                ordered_loads.emplace(load, order);
+                order++;
+
+                auto get_nodes = [&]() -> std::vector<std::shared_ptr<ngraph::snippets::op::Load>> & {
+                    auto it = loads_by_split.find(split);
+                    if (it != loads_by_split.end()) {
+                        return it->second;
+                    }
+
+                    loads_by_split[split] = {};
+                    return loads_by_split[split];
+                };
+
+                const auto index = n->get_input_source_output(0).get_index();
+                auto &nodes = get_nodes();
+                if (nodes.size() <= index) {
+                    nodes.resize(index + 1);
+                }
+                nodes[index] = load;
+            }
+        }
+    }
+
+    for (auto loads_it : loads_by_split) {
+        std::shared_ptr<ngraph::snippets::op::Load> latest;
+        size_t latest_order;
+        for (auto load : loads_it.second) {
+            const auto order_it = ordered_loads.find(load);
+            if (order_it == ordered_loads.end()) {
+                throw ov::Exception("order for node `" + load->get_friendly_name() + "` was not found");
+            }
+
+            order = order_it->second;
+            if ((latest == nullptr) || (order > latest_order)) {
+                latest = load;
+                latest_order = order;
+            }
+        }
+
+        if (latest == nullptr) {
+            throw ov::Exception("latest node was not found");
+        }
+        latest->should_post_increment = true;
+    }
+}
+} // namespace
+
 auto ngraph::snippets::getRegisters(std::shared_ptr<ngraph::Node>& n) -> ngraph::snippets::RegInfo {
     OV_ITT_SCOPED_TASK(ngraph::pass::itt::domains::SnippetsTransform, "Snippets::getRegisters")
     auto rt = n->get_rt_info();
@@ -52,6 +107,9 @@ ngraph::snippets::code ngraph::snippets::Generator::generate(std::shared_ptr<ov:
     OV_ITT_TASK_CHAIN(GENERATE, ngraph::pass::itt::domains::SnippetsTransform, "Snippets::Generator", "::VectorTile")
     // vector tile
     std::vector<AllocatedEmitter> lowered;
+
+    set_should_post_increment(m);
+
     for (auto n : m->get_ordered_ops()) {
         lowered.emplace_back(std::make_pair(target->get(n->get_type_info())(n), ngraph::snippets::getRegisters(n)));
     }

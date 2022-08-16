@@ -383,7 +383,8 @@ template <dnnl::impl::cpu::x64::cpu_isa_t isa>
 void FakeBroadcastEmitter::emit_isa(const std::vector<size_t> &in, const std::vector<size_t> &out) const {
     using Vmm = typename dnnl::impl::utils::conditional3<isa == dnnl::impl::cpu::x64::sse41,
             Xmm, isa == dnnl::impl::cpu::x64::avx2, Ymm, Zmm>::type;
-    Vmm vmm_src0 = Vmm(in[0]);
+    assert(source_output_indexes.empty() || (source_output_indexes.size() == 1ul));
+    Vmm vmm_src0 = Vmm(source_output_indexes.empty() ? 0 : in[source_output_indexes[0]]);
     Vmm vmm_dst  = Vmm(out[0]);
 
     if (use_broadcast) {
@@ -498,8 +499,26 @@ void ScalarStoreEmitter::emit_isa(const std::vector<size_t> &in, const std::vect
 
 LoadEmitter::LoadEmitter(dnnl::impl::cpu::x64::jit_generator* h, dnnl::impl::cpu::x64::cpu_isa_t isa,
                          const std::shared_ptr<ov::Node>& n)
-                         : MemoryEmitter(h, isa, n), shouldPostIncrement(*n->get_input_shape(0).rbegin() != 1) {
+                         : MemoryEmitter(h, isa, n) {
     in_out_type_ = emitter_in_out_map::gpr_to_vec;
+
+    auto load = ov::as_type_ptr<ngraph::snippets::op::Load>(n);
+    if (load == nullptr) {
+        throw ov::Exception("Load is expected, unexpected node type: " + std::string(n->get_type_name()));
+    }
+
+    if (*n->get_input_shape(0).rbegin() != 1) {
+        const auto input_node = n->get_input_node_shared_ptr(0);
+        if (ov::is_type<ngraph::opset1::Split>(input_node)) {
+            shouldPostIncrement = load->should_post_increment;
+        } else {
+            shouldPostIncrement = true;
+        }
+    } else {
+        shouldPostIncrement = false;
+    }
+
+    offset = load->offset;
 }
 
 void LoadEmitter::emit_impl(const std::vector<size_t>& in,
@@ -525,7 +544,16 @@ void LoadEmitter::emit_isa(const std::vector<size_t> &in, const std::vector<size
             Xmm, isa == dnnl::impl::cpu::x64::avx2, Ymm, Zmm>::type;
     Reg64 in_reg(static_cast<int>(in[0]));
     Vmm vmm_src0 = Vmm(out[0]);
+
+    if (offset != 0ul) {
+        h->add(in_reg, offset);
+    }
+
     h->uni_vmovups(vmm_src0, h->ptr[in_reg]);
+
+    if (offset != 0ul) {
+        h->sub(in_reg, offset);
+    }
 
     if (shouldPostIncrement) {
         h->add(in_reg, dnnl::impl::cpu::x64::cpu_isa_traits<isa>::vlen);
