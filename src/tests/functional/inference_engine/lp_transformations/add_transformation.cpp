@@ -265,7 +265,7 @@ const std::vector<AddTransformationTestValues> testValuesWithoutConstantBranches
         ""
     },
 
-    // Actual:
+    // Actual (Subtract with Convert):
     //
     // Parameter Constant Parameter Constant
     //  |U8      |U8        |U8      |U8
