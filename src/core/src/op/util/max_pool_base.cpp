@@ -51,25 +51,26 @@ void ov::op::util::MaxPoolBase::validate_and_infer_types() {
         "Expected a 3D, 4D or 5D tensor for the input. Got: ",
         arg_shape);
 
-    if (arg_shape.rank().is_static()) {
-        NODE_VALIDATION_CHECK(this,
-                              static_cast<int64_t>(m_pads_end.size()) == arg_shape.rank().get_max_length() - 2,
-                              "Expected pads_end size to be equal to input size - 2. Got: ",
-                              m_pads_end.size());
-
-        NODE_VALIDATION_CHECK(this,
-                              static_cast<int64_t>(m_pads_begin.size()) == arg_shape.rank().get_max_length() - 2,
-                              "Expected pads_begin size to be equal to input size - 2. Got: ",
-                              m_pads_begin.size());
-        NODE_VALIDATION_CHECK(this,
-                              static_cast<int64_t>(m_kernel.size()) == arg_shape.rank().get_max_length() - 2,
-                              "Expected kernel size to be equal to input size - 2. Got: ",
-                              m_kernel.size());
-        NODE_VALIDATION_CHECK(this,
-                              static_cast<int64_t>(m_strides.size()) == arg_shape.rank().get_max_length() - 2,
-                              "Expected strides size to be equal to input size - 2. Got: ",
-                              m_strides.size());
-    }
+    // TODO: just to test performance: will be removed later (Maх will be used)
+    //if (arg_shape.rank().is_static()) {
+    //    NODE_VALIDATION_CHECK(this,
+    //                          static_cast<int64_t>(m_pads_end.size()) == arg_shape.rank().get_max_length() - 2,
+    //                          "Expected pads_end size to be equal to input size - 2. Got: ",
+    //                          m_pads_end.size());
+    //
+    //    NODE_VALIDATION_CHECK(this,
+    //                          static_cast<int64_t>(m_pads_begin.size()) == arg_shape.rank().get_max_length() - 2,
+    //                          "Expected pads_begin size to be equal to input size - 2. Got: ",
+    //                          m_pads_begin.size());
+    //    NODE_VALIDATION_CHECK(this,
+    //                          static_cast<int64_t>(m_kernel.size()) == arg_shape.rank().get_max_length() - 2,
+    //                          "Expected kernel size to be equal to input size - 2. Got: ",
+    //                          m_kernel.size());
+    //    NODE_VALIDATION_CHECK(this,
+    //                          static_cast<int64_t>(m_strides.size()) == arg_shape.rank().get_max_length() - 2,
+    //                          "Expected strides size to be equal to input size - 2. Got: ",
+    //                          m_strides.size());
+    //}
 }
 
 ov::PartialShape ov::op::util::MaxPoolBase::infer_output_shape(const Strides& dilations) {
@@ -92,15 +93,22 @@ ov::PartialShape ov::op::util::MaxPoolBase::infer_output_shape(const Strides& di
     if (update_auto_padding_succeed) {
         CoordinateDiff pads_begin(m_pads_begin.begin(), m_pads_begin.end());
         CoordinateDiff pads_end(m_pads_end.begin(), m_pads_end.end());
-        output_shape = ngraph::infer_batched_pooling_forward(this,
-                                                             get_input_partial_shape(0),
-                                                             pads_begin,
-                                                             pads_end,
-                                                             m_kernel,
-                                                             m_strides,
-                                                             true,
-                                                             m_rounding_type == op::RoundingType::CEIL,
-                                                             dilations);
+
+        const auto& input_shape = get_input_partial_shape(0);
+        if ((input_shape.size() == 5ul) && (m_kernel.size() == 2ul)) {
+            // TODO: just to test performance: will be removed later (Maх will be used)
+            output_shape = {input_shape[0ul], input_shape[1ul], input_shape[2ul] / m_kernel[0], input_shape[3ul] / m_kernel[1], input_shape[4ul]};
+        } else {
+            output_shape = ngraph::infer_batched_pooling_forward(this,
+                                                                 get_input_partial_shape(0),
+                                                                 pads_begin,
+                                                                 pads_end,
+                                                                 m_kernel,
+                                                                 m_strides,
+                                                                 true,
+                                                                 m_rounding_type == op::RoundingType::CEIL,
+                                                                 dilations);
+        }
     } else {
         if (arg_shape.rank().is_static() && arg_shape.rank().get_max_length() > 0) {
             output_shape = std::vector<Dimension>(arg_shape.rank().get_max_length(), Dimension::dynamic());

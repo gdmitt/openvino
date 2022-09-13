@@ -60,6 +60,9 @@ ov::intel_cpu::CPUTargetMachine::CPUTargetMachine(dnnl::impl::cpu::x64::cpu_isa_
     // jitters[ngraph::opset1::Convert::get_type_info_static()] = CREATE_EMITTER(); // Not supported
     // jitters[ngraph::opset1::FakeQuantize::get_type_info_static()] = CREATE_EMITTER(); // not supported
 
+    // layout-dependent
+    jitters[ngraph::opset1::MaxPool::get_type_info_static()] = CREATE_EMITTER(MaxPoolEmitter);
+
     // binary
     jitters[ngraph::opset1::Add::get_type_info_static()] = CREATE_EMITTER(ov::intel_cpu::jit_add_emitter);
     jitters[ngraph::opset1::Divide::get_type_info_static()] = CREATE_EMITTER(ov::intel_cpu::jit_divide_emitter);

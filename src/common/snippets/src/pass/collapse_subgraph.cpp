@@ -101,9 +101,16 @@ auto is_layout_oblivious(const std::shared_ptr<const Node> &n) -> bool {
             || ov::is_type<ngraph::op::v7::Gelu>(n)
             || ov::is_type<ngraph::op::v4::HSwish>(n);
     };
+
     return is_layout_oblivious_unary(n) || is_layout_oblivious_binary(n);
 }
 
+auto is_layout_dependent(const std::shared_ptr<const Node> &n) -> bool {
+    return ov::is_type<opset1::MaxPool>(n);
+
+    //std::cout << "is_layout_dependent: MaxPool is not supported" << std::endl;
+    //return false;
+}
 auto has_supported_in_out(const std::shared_ptr<const Node> &n) -> bool {
     auto supported = [](descriptor::Tensor& t) -> bool {
         return t.get_element_type() == ngraph::element::f32 &&
@@ -170,7 +177,7 @@ auto update_out_tensor_name(std::shared_ptr<ngraph::snippets::op::Subgraph> &sub
 } // namespace
 
 bool AppropriateForSubgraph(const std::shared_ptr<const Node> &node) {
-    return is_layout_oblivious(node) && has_supported_in_out(node);
+    return (is_layout_oblivious(node) || is_layout_dependent(node)) && has_supported_in_out(node);
 }
 
 void SetSnippetsNodeType(const std::shared_ptr<Node> &node, SnippetsNodeType nodeType) {

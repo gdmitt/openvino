@@ -110,6 +110,8 @@ public:
 
 private:
     void convert_to_snippet_dialect();
+    // TODO: backprop: internal tile amount
+    // TODO: backprop: for layout oblivious operation == max shape from input & output
     Shape exec_domain;
     std::shared_ptr<ov::Model> m_body;
     std::shared_ptr<ngraph::snippets::Generator> m_generator;

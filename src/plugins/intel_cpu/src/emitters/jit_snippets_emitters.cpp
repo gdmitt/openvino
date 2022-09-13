@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "jit_snippets_emitters.hpp"
+
 #include <ngraph/rt_info.hpp>
 #include <ngraph/variant.hpp>
-
-#include "jit_snippets_emitters.hpp"
+#include <ngraph/opsets/opset1.hpp>
 
 using namespace Xbyak;
 
@@ -289,7 +290,9 @@ void TileSchedulerEmitter::emit_impl(const std::vector<size_t>& in,
             //   To overcome this limitation, we add appropriate negative offsets if necessary.
             for (auto i = 0; i < num_params; i++) {
                 if (jcp.scheduler_offsets[i] != 0) {
-                    h->add(data_ptr_regs[i], jcp.scheduler_offsets[i]);
+                    // TODO: backprop: question: tile offset is here
+                    auto offset = jcp.scheduler_offsets[i];
+                    h->add(data_ptr_regs[i], offset);
                 }
             }
             // Note that outer dimensions are always incremented by 1 (outer tiles are always scalar)
@@ -603,5 +606,81 @@ void ScalarLoadEmitter::emit_isa(const std::vector<size_t> &in, const std::vecto
         h->add(in_reg, sizeof(float));
     }
 }
+
+MaxPoolEmitter::MaxPoolEmitter(
+        dnnl::impl::cpu::x64::jit_generator* h,
+        dnnl::impl::cpu::x64::cpu_isa_t isa,
+        const std::shared_ptr<ov::Node>& n) : MemoryEmitter(h, isa, n) {
+    // TODO: backprop: do we need it???
+    in_out_type_ = emitter_in_out_map::gpr_to_vec;
+    shouldPostIncrement = true;
+
+    const auto& max_pool = as_type_ptr<ngraph::opset1::MaxPool>(n);
+    kernel = max_pool->get_kernel();
+    // TODO: backprop: static shape is supported only
+    input_shape = max_pool->get_input_shape(0);
+}
+
+void MaxPoolEmitter::emit_impl(const std::vector<size_t>& in,
+                            const std::vector<size_t>& out,
+                            const std::vector<size_t>& pool,
+                            const std::vector<size_t>& gpr,
+                            const ov::intel_cpu::emitter_context *emit_context) const {
+    if (host_isa_ == dnnl::impl::cpu::x64::sse41) {
+        emit_isa<dnnl::impl::cpu::x64::sse41>(in, out);
+    } else if (host_isa_ == dnnl::impl::cpu::x64::avx2) {
+        emit_isa<dnnl::impl::cpu::x64::avx2>(in, out);
+    } else if (host_isa_ == dnnl::impl::cpu::x64::avx512_common) {
+        emit_isa<dnnl::impl::cpu::x64::avx512_common>(in, out);
+    } else {
+        IE_THROW() << host_isa_;
+        assert(!"unsupported isa");
+    }
+}
+
+template <dnnl::impl::cpu::x64::cpu_isa_t isa>
+void MaxPoolEmitter::emit_isa(const std::vector<size_t> &in, const std::vector<size_t> &out) const {
+    using Vmm = typename dnnl::impl::utils::conditional3<isa == dnnl::impl::cpu::x64::sse41,
+            Xmm, isa == dnnl::impl::cpu::x64::avx2, Ymm, Zmm>::type;
+
+    // TODO: backprop: just to debug
+    Reg64 in_reg(static_cast<int>(in[0]));
+    Vmm vmm_in0 = Vmm(out[0] == 0 ? 1 : 0);
+    Vmm vmm_out0 = Vmm(out[0]);
+
+    // TODO: backprop: build cycle if kernel volume more some value
+    const auto offset = input_shape[3];
+    const auto d_dim_max = kernel.size() >= 3ul ? kernel[kernel.size() - 3ul] : 1ul;
+    const auto h_dim_max = kernel.size() >= 2ul ? kernel[kernel.size() - 2ul] : 1ul;
+    const auto w_dim_max = kernel[kernel.size() - 1ul];
+    auto offset_to_restore = 0ul;
+    auto current_offset = 0ul;
+
+    for (auto d_dim = 0ul; d_dim < d_dim_max; ++d_dim) {
+        for (auto h_dim = 0ul; h_dim < h_dim_max; ++h_dim) {
+            for (auto w_dim = 0ul; w_dim < w_dim_max; ++w_dim) {
+                if ((w_dim == 0ul) && (h_dim == 0ul) && (d_dim == 0ul)) {
+                    h->uni_vmovups(vmm_out0, h->ptr[in_reg]);
+                    continue;
+                }
+
+                if (w_dim != 0ul) {
+                    // the same line
+                    offset_to_restore += dnnl::impl::cpu::x64::cpu_isa_traits<isa>::vlen;
+                    current_offset += dnnl::impl::cpu::x64::cpu_isa_traits<isa>::vlen;
+                } else {
+                    // new line
+                    offset_to_restore += dnnl::impl::cpu::x64::cpu_isa_traits<isa>::vlen * (offset - kernel[1] + 1ul);
+                    current_offset += dnnl::impl::cpu::x64::cpu_isa_traits<isa>::vlen * (offset - kernel[1] + 1ul);
+                }
+                h->uni_vmovups(vmm_in0, h->ptr[in_reg + current_offset]);
+                h->uni_vmaxps(vmm_out0, vmm_out0, vmm_in0);
+            }
+        }
+    }
+
+    h->add(in_reg, dnnl::impl::cpu::x64::cpu_isa_traits<isa>::vlen);
+}
+
 }   // namespace intel_cpu
 }   // namespace ov

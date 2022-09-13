@@ -26,8 +26,14 @@ struct jit_snippets_call_args {
 };
 
 struct jit_snippets_compile_args {
+    // TODO: backprop: fix here: 32 x 32
+    // TODO: backprop: Tile amount in TileScheduler (work amounts)
     int64_t scheduler_dims[SNIPPETS_MAX_TILE_RANK] = {};
+
+    // TODO: backprop: question: offset here
     int64_t scheduler_offsets[SNIPPETS_MAX_SNIPPETS_DIMS] = {};
+
+    // TODO: backprop: start data offset
     int64_t data_offsets[SNIPPETS_MAX_SNIPPETS_DIMS * SNIPPETS_MAX_HARNESS_DIMS] = {};
     std::vector<size_t> output_dims = {};
 };
@@ -323,6 +329,28 @@ private:
 
 private:
     bool shouldPostIncrement;
+};
+
+class MaxPoolEmitter : public MemoryEmitter {
+public:
+    MaxPoolEmitter(dnnl::impl::cpu::x64::jit_generator* h, dnnl::impl::cpu::x64::cpu_isa_t isa, const std::shared_ptr<ov::Node>& n);
+
+    size_t get_inputs_num() const override {return 0;}
+
+private:
+    void emit_impl(const std::vector<size_t>& in,
+                   const std::vector<size_t>& out,
+                   const std::vector<size_t>& pool,
+                   const std::vector<size_t>& gpr,
+                   const ov::intel_cpu::emitter_context *emit_context) const override;
+
+    template <dnnl::impl::cpu::x64::cpu_isa_t isa>
+    void emit_isa(const std::vector<size_t> &in, const std::vector<size_t> &out) const;
+
+private:
+    bool shouldPostIncrement;
+    ov::Shape kernel;
+    ov::Shape input_shape;
 };
 }   // namespace intel_cpu
 }   // namespace ov

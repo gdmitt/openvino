@@ -233,6 +233,7 @@ void compare(const ov::Tensor& expected,
     for (size_t i = 0; i < shape_size(expected_shape); i++) {
         double expected_value = expected_data[i];
         double actual_value = actual_data[i];
+
         auto error = [&] (Error& err, double val, double threshold) {
             if (less(err.max, val)) {
                 err.max = val;

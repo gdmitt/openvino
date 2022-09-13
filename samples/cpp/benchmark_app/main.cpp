@@ -480,6 +480,14 @@ int main(int argc, char* argv[]) {
                     StatisticsReport::Category::EXECUTION_RESULTS,
                     {StatisticsVariant("read network time (ms)", "read_network_time", duration_ms)});
 
+            for (auto index = 0; index < model->inputs().size(); index++) {
+                const auto& input = model->input(index);
+                auto& tensor = input.get_tensor();
+                if (tensor.get_names().empty()) {
+                    tensor.set_names({input.get_node()->get_friendly_name()});
+                }
+            }
+
             const auto& inputInfo = std::const_pointer_cast<const ov::Model>(model)->inputs();
             if (inputInfo.empty()) {
                 throw std::logic_error("no inputs info is provided");
@@ -959,6 +967,8 @@ int main(int argc, char* argv[]) {
         auto startTime = Time::now();
         auto execTime = std::chrono::duration_cast<ns>(Time::now() - startTime).count();
 
+        long long int minLatency = 0;
+
         /** Start inference & calculate performance **/
         /** to align number if iterations to guarantee that last infer requests are
          * executed in the same conditions **/
@@ -1008,7 +1018,12 @@ int main(int argc, char* argv[]) {
             }
 
             if (FLAGS_api == "sync") {
+                const auto start = Time::now();
                 inferRequest->infer();
+                const auto latency = std::chrono::duration_cast<ns>(Time::now() - start).count();
+                if ((minLatency == 0ll) || (latency < minLatency)) {
+                    minLatency = latency;
+                }
             } else {
                 // As the inference request is currently idle, the wait() adds no
                 // additional overhead (and should return immediately). The primary
@@ -1062,6 +1077,8 @@ int main(int argc, char* argv[]) {
         double totalDuration = inferRequestsQueue.get_duration_in_milliseconds();
         double fps = (FLAGS_api == "sync") ? batchSize * 1000.0 / generalLatency.median_or_percentile
                                            : 1000.0 * processedFramesN / totalDuration;
+
+        double minFps = (FLAGS_api == "sync") ? batchSize * 1000.0 * 1000000.0 / minLatency : 0.;
 
         if (statistics) {
             statistics->add_parameters(StatisticsReport::Category::EXECUTION_RESULTS,
@@ -1156,7 +1173,10 @@ int main(int argc, char* argv[]) {
             }
         }
         slog::info << "Throughput: " << double_to_string(fps) << " FPS" << slog::endl;
-
+        if (FLAGS_api == "sync") {
+            slog::info << "Min Latency: " << double_to_string(minLatency / 1000000.0) << " ms" << slog::endl;
+            slog::info << "Max throughput: " << double_to_string(minFps) << " FPS" << slog::endl;
+        }
     } catch (const std::exception& ex) {
         slog::err << ex.what() << slog::endl;
 

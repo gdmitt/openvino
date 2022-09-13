@@ -20,6 +20,14 @@ ngraph::snippets::pass::InsertLoad::InsertLoad() {
             OV_ITT_SCOPED_TASK(ngraph::pass::itt::domains::SnippetsTransform, "Snippets::op::InsertLoad")
             auto root = m.get_match_root();
 
+            const auto& inputs = root->get_output_target_inputs(0);
+            if (inputs.size() == 1ul) {
+                const auto& input_node = inputs.begin()->get_node();
+                if (is_type<opset1::MaxPool>(input_node)) {
+                    return false;
+                }
+            }
+
             // check if already has Load as an output
             for (auto output : root->outputs()) {
                 for (auto consumer : output.get_target_inputs()) {

@@ -597,6 +597,9 @@ void parallel_for5d(const T0& D0, const T1& D1, const T2& D2, const T3& D3, cons
 #if IE_THREAD == IE_THREAD_TBB
     auto work_amount = static_cast<size_t>(D0 * D1 * D2 * D3 * D4);
     int nthr = parallel_get_max_threads();
+#ifdef CPU_DEBUG_CAPS
+    nthr = 1;
+#endif
     if (static_cast<size_t>(nthr) > work_amount)
         nthr = static_cast<int>(work_amount);
     if (nthr == 1) {
